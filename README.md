@@ -1,6 +1,7 @@
 # Trino Connect Doris Demo
 
-因为业务需要，Trino 要查询 Doris 的数据，因为 Doris 兼容 Mysql 协议，所以我们可以服用 Trino-Mysql Connector，只是有些配置要修改一下才可行。
+因为业务需要，Trino 要查询 Doris 的数据，因为 Doris 兼容 Mysql 协议，
+所以我们可以复用 Trino-Mysql Connector，只是有些配置要修改一下才可行。
 
 
 ## Connector 配置
@@ -22,7 +23,7 @@ statistics.enabled=false
 
 ### 解读1
 配置项 `insert.non-transactional-insert.enabled` 改为 true，是因为 Trino 默认会用事务的方式写入数据到 Mysql，其流程是这样的：
-1. craete temp table 
+1. create temp table 
 2. insert data to temp table
 2. copy temp table data to destination table with transaction
 
@@ -37,17 +38,21 @@ statistics.enabled=false
 如果 doirs 的 table column 有变动，你可以选择等待缓存时间过期，或者直接清空缓存，在 Trino 中执行以下指令：
 
 
-### 解读3
-配置项 `statistics.enabled` 该配置项并没有出现在文档中，需要阅读 Trino 源码才能知道, 其背景是这样的，Trino 要通过查询 Mysql 的 INFORMATION_SCHEMA.STATISTICS 表获取 table 的静态信息，
-例如 column 的最大最小值，条数等，这些信息用用于 Trino 的 cost based optimizations(基于代价的优化)。
-而 Doris 中并没有这张 STATISTICS 表，所以每次查询都会报错，虽然不影响取数，但总是个问题。左移在这个例子中，我们可以选择把这个配置项关闭，这样就不会查询 STATISTICS 信息了。
-
-
-
 ```sql
 USE dorisdb.example_schema;
 CALL system.flush_metadata_cache();
 ```
+
+
+
+### 解读3
+配置项 `statistics.enabled` 该配置项并没有出现在文档中，需要阅读 Trino 源码才能知道。
+
+其背景是这样的，Trino 要通过查询 Mysql 的 INFORMATION_SCHEMA.STATISTICS 表获取 table 的静态信息，
+例如 column 的最大最小值，条数等，这些信息用用于 Trino 的 cost based optimizations(基于代价的优化)。
+而 Doris 中并没有这张 STATISTICS 表，所以每次查询都会报错，虽然不影响取数，但总是个问题。
+
+所以在这个例子中，我们可以选择把这个配置项关闭，这样就不会查询 STATISTICS 信息了。
 
 
 
