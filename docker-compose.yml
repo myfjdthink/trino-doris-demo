@@ -2,14 +2,14 @@ version: '3'
 
 services:
   trino:
-#    build: .
-    image: trinodb/trino:405
+    build: .
+    image: trinodb/trino:local
     volumes:
       - ./catalog:/etc/trino/catalog
     ports:
       - '8080:8080'
     networks:
-      - doris_net
+      - dd_net
   doris-fe:
     image: "apache/doris:1.2.1-fe-x86_64"
     hostname: "fe"
@@ -20,7 +20,7 @@ services:
       - 8030:8030
       - 9030:9030
     networks:
-      doris_net:
+      dd_net:
         ipv4_address: 172.20.80.2
   doris-be:
     image: "apache/doris:1.2.1-be-x86_64"
@@ -33,10 +33,10 @@ services:
     ports:
       - 8040:8040
     networks:
-      doris_net:
+      dd_net:
         ipv4_address: 172.20.80.3
 networks:
-  doris_net:
+  dd_net:
     ipam:
       config:
         - subnet: 172.20.80.0/16
