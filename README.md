@@ -1,7 +1,13 @@
 # Trino Connect Doris Demo
 
-因为业务需要，Trino 要查询 Doris 的数据，因为 Doris 兼容 Mysql 协议，
-所以我们可以复用 Trino-Mysql Connector，只是有些配置要修改一下才可行。
+Doris 在 QPS 上会比 Trino 优秀，我们需要同时使用这两个 OLAP，为了不改动上层架构，需要通过 Trino 查询 Doris
+
+或者有些项目选择从 Trino 迁移到 Doris，打通 Trino 查询 Doris 可以做到渐进式迁移。
+
+为了这些需求，我们尝试做 Trino Doris 的适配。
+
+因为 Doris 兼容 Mysql 协议，所以我们可以复用 Trino-Mysql Connector，
+做些配置和小修改就行了。
 
 
 ## Connector 配置
@@ -17,12 +23,13 @@ insert.non-transactional-insert.enabled=true
 metadata.cache-ttl=10m
 metadata.cache-missing=true
 statistics.enabled=false
+mysql.datetime-column-size=23
 ```
-完整配置项见 [Trino 文档](https://trino.io/docs/current/connector/mysql.html)
+具体配置项见 [Trino 文档](https://trino.io/docs/current/connector/mysql.html)
 
 
 ### 解读1
-配置项 `insert.non-transactional-insert.enabled` 改为 true，是因为 Trino 默认会用事务的方式写入数据到 Mysql，其流程是这样的：
+配置项 `insert.non-transactional-insert.enabled=true` 是因为 Trino 默认会用事务的方式写入数据到 Mysql，其流程是这样的：
 1. create temp table 
 2. insert data to temp table
 2. copy temp table data to destination table with transaction
@@ -46,7 +53,7 @@ CALL system.flush_metadata_cache();
 
 
 ### 解读3
-配置项 `statistics.enabled` 该配置项并没有出现在文档中，需要阅读 Trino 源码才能知道。
+配置项 `statistics.enabled=false` 该配置项并没有出现在文档中，需要阅读 Trino 源码才能知道。
 
 其背景是这样的，Trino 要通过查询 Mysql 的 INFORMATION_SCHEMA.STATISTICS 表获取 table 的静态信息，
 例如 column 的最大最小值，条数等，这些信息用用于 Trino 的 cost based optimizations(基于代价的优化)。
@@ -54,8 +61,29 @@ CALL system.flush_metadata_cache();
 
 所以在这个例子中，我们可以选择把这个配置项关闭，这样就不会查询 STATISTICS 信息了。
 
+### 解读4
+配置项 `mysql.datetime-column-size=23` 并非 Trino 提供的配置项。
 
+其背景是这样的，Trino 要通过查询 Mysql 的 INFORMATION_SCHEMA.COLUMNS 表获取 column 的类型，
 
+计算 DATETIME 的 COLUMN_SIZE 是这样的逻辑
+
+```sql
+WHEN UPPER(DATA_TYPE) = 'DATETIME' 
+    OR UPPER(DATA_TYPE) = 'TIMESTAMP' THEN 19 + (CASE
+                                     WHEN DATETIME_PRECISION > 0
+                                         THEN DATETIME_PRECISION + 1
+                                     ELSE DATETIME_PRECISION END)
+    AS COLUMN_SIZE,
+```
+
+因 Doris 返回的 DATETIME_PRECISION 是 null，导致 DATETIME 计算为 null。
+
+所以我们修改了 Mysql Connector，在 DATETIME COLUMN_SIZE 为 null 的情况下，改为读取 `mysql.datetime-column-size=23`
+
+本次修改提交到了 [footprintanalytics/trino](https://github.com/footprintanalytics/trino) 
+
+本仓库已经包括了修改后的 `trino-mysql-405.jar`，你也可以选择自行编译
 
 ## 部署测试
 使用 Docker Compose 启动 Trino 和 Doris
@@ -146,4 +174,13 @@ cd /opt/trino/plugin/trino-mysql
 ```
 
 编译完成后，只需要将 trino-mysql/target/ 目录下的 trino-mysql-405.jar 提取出来，覆盖 Trino 的 Plugin 即可
+
+参考本仓库中的  Dockerfile
+
+```shell
+COPY plugin/trino-mysql-405.jar /usr/lib/trino/plugin/mysql/trino-mysql-405.jar
+```
+
+
+
 
