@@ -1,13 +1,12 @@
 # Trino Connect Doris Demo
 
-Doris 在 QPS 上会比 Trino 优秀，我们需要同时使用这两个 OLAP，为了不改动上层架构，需要通过 Trino 查询 Doris
+在 QPS 上，Doris 的表现优于 Trino。我们需要同时使用这两个 OLAP。为了不改动上层架构，需要通过 Trino 查询 Doris。
 
-或者有些项目选择从 Trino 迁移到 Doris，打通 Trino 查询 Doris 可以做到渐进式迁移。
+有些项目选择从 Trino 迁移到 Doris，打通 Trino 查询 Doris 可以做到渐进式迁移。
 
-为了这些需求，我们尝试做 Trino Doris 的适配。
+为了满足这些需求，我们尝试做 Trino 到 Doris 的适配。
 
-因为 Doris 兼容 Mysql 协议，所以我们可以复用 Trino-Mysql Connector，
-做些配置和小修改就行了。
+由于 Doris 兼容 MySQL 协议，因此我们可以复用 Trino-MySQL Connector。只需要进行一些配置和小修改即可。
 
 
 ## Connector 配置
@@ -23,6 +22,9 @@ insert.non-transactional-insert.enabled=true
 metadata.cache-ttl=10m
 metadata.cache-missing=true
 statistics.enabled=false
+
+mysql.force-aggregation-pushdown=true
+mysql.force-topn-pushdown=true
 mysql.datetime-column-size=23
 ```
 具体配置项见 [Trino 文档](https://trino.io/docs/current/connector/mysql.html)
@@ -34,9 +36,7 @@ mysql.datetime-column-size=23
 2. insert data to temp table
 2. copy temp table data to destination table with transaction
 
-问题就出在 create temp table 这里，因为 Doris 的建表语句和 Mysql 还是有差别的。
-所以我们可以选择跳过事务写入的方式，直接 insert data to destination table 的方式来写入数据。
-
+然而，问题在于 create temp table 步骤，因为 Doris 的建表语句与 Mysql 有所不同。因此，我们可以选择跳过事务写入，直接将数据插入到目标表中来写入数据。
 
 ### 解读2
 配置项 `metadata.cache-ttl` 和 `metadata.cache-missing` 的作用是对 table metadata 做缓存，因为 Trino 要知道 Mysql Table 的每个 column 的类型，才好做类型转换。
@@ -59,7 +59,7 @@ CALL system.flush_metadata_cache();
 例如 column 的最大最小值，条数等，这些信息用用于 Trino 的 cost based optimizations(基于代价的优化)。
 而 Doris 中并没有这张 STATISTICS 表，所以每次查询都会报错，虽然不影响取数，但总是个问题。
 
-所以在这个例子中，我们可以选择把这个配置项关闭，这样就不会查询 STATISTICS 信息了。
+所以在这个例子中，我们可以选择把这个配置项关闭，这样就不会查询 STATISTICS 信息。
 
 
 ## 定制化
@@ -229,10 +229,10 @@ select count(*) from  "mysql-doris".dp.customer ;
 
 
 结论：
-- Doris 集群上直接查询是最快的，Doris 的原生存储格式，处理数据量比较小的 table 速度上非常有优势
-- trino-doris 组合，在简单的 filter 场景，速度比 trino-iceberg 更快
-- trino-doris 组合，在复杂计算场景，速度还比不过 trino-iceberg，经过 Explain ANALYZE 分析，是因为 Doirs 的数据压缩率不够，aggregate 场景要传输更多数据到 Trino，在 IO 上消耗了时间
-- trino-doris-pushdown 组合，让更多的计算下推，虽然不能支持所有场景，综合查询效果已经比较好了
+- 直接在 Doris 集群上查询是最快的。Doris 的原生存储格式在处理数据量较小的 table 时速度非常优秀。
+- 在简单的 filter 场景下，trino-doris 组合比 trino-iceberg 更快。
+- 在复杂计算场景下，trino-doris 组合的速度仍然比不过 trino-iceberg。经过 Explain ANALYZE 分析，原因是 Doris 的数据压缩率不够，aggregate 场景需要传输更多数据到 Trino，这消耗了时间。
+- 使用 trino-doris-pushdown 组合可以让更多的计算下推。虽然它不能支持所有场景，但综合查询效果已经相当不错了。
 
 测试 SQL 明细：
 
