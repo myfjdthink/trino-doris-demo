@@ -3,7 +3,7 @@ version: '3'
 services:
   trino:
     build: .
-    image: trinodb/trino:local
+    image: trinodb/trino:local-408
     volumes:
       - ./catalog:/etc/trino/catalog
     ports:

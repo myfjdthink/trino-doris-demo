@@ -61,8 +61,20 @@ CALL system.flush_metadata_cache();
 
 所以在这个例子中，我们可以选择把这个配置项关闭，这样就不会查询 STATISTICS 信息了。
 
-### 解读4
-配置项 `mysql.datetime-column-size=23` 并非 Trino 提供的配置项。
+
+## 定制化
+除了通过修改配置让 Connector 能正常工作，我们还需要对 Connector 的做些修改, 才能全面支持 Doris
+
+本次修改提交到了 [footprintanalytics/trino](https://github.com/footprintanalytics/trino) 
+
+本仓库 plugin 目录已经包括了修改后的 jar
+- `trino-mysql-400.jar`
+- `trino-mysql-408.jar`
+
+你也可以选择自行编译
+
+### 识别 Doris 的 Datetime 类型
+新增了个配置项 `mysql.datetime-column-size=23` 。
 
 其背景是这样的，Trino 要通过查询 Mysql 的 INFORMATION_SCHEMA.COLUMNS 表获取 column 的类型，
 
@@ -79,11 +91,53 @@ WHEN UPPER(DATA_TYPE) = 'DATETIME'
 
 因 Doris 返回的 DATETIME_PRECISION 是 null，导致 DATETIME 计算为 null。
 
-所以我们修改了 Mysql Connector，在 DATETIME COLUMN_SIZE 为 null 的情况下，改为读取 `mysql.datetime-column-size=23`
+我们做了修改，DATETIME COLUMN_SIZE 为 null 的情况下，改为读取 `mysql.datetime-column-size=23`
 
-本次修改提交到了 [footprintanalytics/trino](https://github.com/footprintanalytics/trino) 
+### 兼容 Top-N pushdown 和 Aggregation pushdown
+默认情况下，如果对 String 类型的字段排序，是不会 pushdown 的。
 
-本仓库已经包括了修改后的 `trino-mysql-405.jar`，你也可以选择自行编译
+Top-N 的实现
+```java
+@Override
+public boolean supportsTopN(ConnectorSession session, JdbcTableHandle handle, List<JdbcSortItem> sortOrder)
+{
+    for (JdbcSortItem sortItem : sortOrder) {
+        Type sortItemType = sortItem.getColumn().getColumnType();
+        if (sortItemType instanceof CharType || sortItemType instanceof VarcharType) {
+            // Remote database can be case insensitive.
+            return false;
+        }
+    }
+    return true;
+}
+```
+Aggregation 的实现
+```java
+@Override
+public boolean supportsAggregationPushdown(ConnectorSession session, JdbcTableHandle table, List<AggregateFunction> aggregates, Map<String, ColumnHandle> assignments, List<List<ColumnHandle>> groupingSets)
+{
+    // Remote database can be case insensitive.
+    return preventTextualTypeAggregationPushdown(groupingSets);
+}
+```
+
+都是因为 case insensitive，可能导致 pushdown 失效
+
+我们添加了两个配置项，来强制 pushdown。
+- `mysql.force-aggregation-pushdown=true`
+- `force-topn-pushdown=true`
+
+添加配置后，可以使用 `EXPLAIN` 测试效果
+```sql
+EXPLAIN
+SELECT regionkey, count(*)
+FROM nation
+GROUP BY regionkey;
+```
+Aggregation pushdown 生效的情况下，EXPLAIN 结果里是看不到 Aggregate 算子的
+
+
+**注意**，因为某些原因，Aggregation pushdown 不会在所有情况下生效，具体限制见[文档](https://trino.io/docs/current/optimizer/pushdown.html#limitations)
 
 ## 部署测试
 使用 Docker Compose 启动 Trino 和 Doris
@@ -145,9 +199,76 @@ select * from  "mysql-doris".dp.customer where custkey > 100000;
 select count(*) from  "mysql-doris".dp.customer ;
 ```
 
-## TODO
+## 性能测试
+分别测试以下三种组合：
+* trino-iceberg
+* trino-doris
+* doris only 
 
-- 测试大量数据读取的情况
+数据集条数：19583572
+
+数据集大小：
+- store in iceberg ： 2.4 GB
+- store in doris ： 955 MB (有压缩)
+
+机器配置
+
+|  集群   | version  | 配置  |
+|  ----  | ----  |----  |
+| trino  | 408 | 8c32g*3 |
+| doris  | 1.2.2 | 16c64g*1 |
+
+测试结果, 单位是 s：
+
+| sql           | trino-iceberg | trino-doris | trino-doris-pushdown | doris |
+|---------------|---------------|-------------|----------------------|-------|
+| filter        | 5.33          | 3.07        | TODO                   | 1.82  |
+| sum aggregate | 4.81          | 22.71       | TODO                 | 2.71  |
+| inner join    | 2.03          | 5.27        | TODO                 | 1.15  |
+| distinct      | 3.92          | 14.30       |  TODO                | 1.95  |
+
+
+结论：
+- Doris 集群上直接查询是最快的，Doris 的原生存储格式，处理数据量比较小的 table 速度上非常有优势
+- trino-doris 组合，在简单的 filter 场景，速度比 trino-iceberg 更快
+- trino-doris 组合，在复杂计算场景，速度还比不过 trino-iceberg，经过 Explain ANALYZE 分析，是因为 Doirs 的数据压缩率不够，aggregate 场景要传输更多数据到 Trino，在 IO 上消耗了时间
+- trino-doris-pushdown 组合，让更多的计算下推，虽然不能支持所有场景，综合查询效果已经比较好了
+
+测试 SQL 明细：
+
+filter 
+```sql
+select *
+from trades
+where collection_contract_address = '0xba6666b118f8303f990f3519df07e160227cce87'
+order by block_timestamp desc
+```
+aggregate:
+
+```sql
+select sum(amount_raw), buyer_address
+from trades
+group by buyer_address
+order by 1 desc
+```
+
+inner join:
+```sql
+select *
+from trades as a
+inner join price_5min as b
+on a.amount_currency_contract_address = b.token_address
+and a.chain = b."chain"
+where a.collection_contract_address = '0xba6666b118f8303f990f3519df07e160227cce87'
+and a.buyer_address = '0x02639771b23931e8428fc30323d5a5ab8be22b06'
+```
+
+distinct:
+```sql
+select distinct buyer_address from doris.prod_silver.nft_trades
+```
+
+## TODO
 - 测试大量数据写入的情况
 
 ## 如何修改 Trino Mysql Connector

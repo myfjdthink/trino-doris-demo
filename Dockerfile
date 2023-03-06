@@ -2,7 +2,7 @@
 # Build SQL Playground Image
 ###############################################################################
 
-FROM trinodb/trino:405
+FROM trinodb/trino:408
 
-COPY plugin/trino-mysql-405.jar /usr/lib/trino/plugin/mysql/trino-mysql-405.jar
+COPY plugin/trino-mysql-408.jar /usr/lib/trino/plugin/mysql/trino-mysql-408.jar
 RUN echo "io.trino=DEBUG" >> /etc/trino/log.properties
