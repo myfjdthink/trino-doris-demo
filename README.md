@@ -222,10 +222,10 @@ select count(*) from  "mysql-doris".dp.customer ;
 
 | sql           | trino-iceberg | trino-doris | trino-doris-pushdown | doris |
 |---------------|---------------|-------------|----------------------|-------|
-| filter        | 5.33          | 3.07        | TODO                   | 1.82  |
-| sum aggregate | 4.81          | 22.71       | TODO                 | 2.71  |
-| inner join    | 2.03          | 5.27        | TODO                 | 1.15  |
-| distinct      | 3.92          | 14.30       |  TODO                | 1.95  |
+| filter        | 5.33          | 3.07        | 2.714                | 1.82  |
+| sum aggregate | 4.81          | 22.71       | 6.192                | 2.71  |
+| inner join    | 2.03          | 5.27        | 6.124                | 1.15  |
+| distinct      | 3.92          | 14.30       | 3.984                | 1.95  |
 
 
 结论：
