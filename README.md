@@ -125,7 +125,7 @@ public boolean supportsAggregationPushdown(ConnectorSession session, JdbcTableHa
 
 我们添加了两个配置项，来强制 pushdown。
 - `mysql.force-aggregation-pushdown=true`
-- `force-topn-pushdown=true`
+- `mysql.force-topn-pushdown=true`
 
 添加配置后，可以使用 `EXPLAIN` 测试效果
 ```sql
