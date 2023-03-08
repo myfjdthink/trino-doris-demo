@@ -220,13 +220,13 @@ select count(*) from  "mysql-doris".dp.customer ;
 
 测试结果, 单位是 s：
 
-| sql           | trino-iceberg | trino-doris | trino-doris-pushdown | doris |
-|---------------|---------------|-------------|----------------------|-------|
-| filter        | 5.33          | 3.07        | 2.714                | 1.82  |
-| sum aggregate | 4.81          | 22.71       | 6.192                | 2.71  |
-| inner join    | 2.03          | 5.27        | 6.124                | 1.15  |
-| distinct      | 3.92          | 14.30       | 3.984                | 1.95  |
-
+| sql        | trino-iceberg | trino-doris-pushdown | doris |
+|------------|---------------|----------------------|-------|
+| filter     | 5.656         | 0.452                | 0.264 |
+| order by   | 5.488         | 0.264                | 0.114 |
+| sum        | 1.088         | 0.724                | 0.654 |
+| distinct   | 0.637         | 1.751                | 1.663 |
+| inner join | 1.908         | 6.116                | 0.827 |
 
 结论：
 - 直接在 Doris 集群上查询是最快的。Doris 的原生存储格式在处理数据量较小的 table 时速度非常优秀。
@@ -240,16 +240,31 @@ filter
 ```sql
 select *
 from trades
-where collection_contract_address = '0xba6666b118f8303f990f3519df07e160227cce87'
-order by block_timestamp desc
+where transaction_hash = '0xd680574111d08c04345b4f8f2dc07c33b432e7cdaa34082abfd0d03d34afd3b0'
+limit 200
 ```
-aggregate:
 
+order by
+```sql
+select *
+from trades
+order by block_timestamp desc
+limit 200
+```
+
+sum aggregate:
 ```sql
 select sum(amount_raw), buyer_address
 from trades
 group by buyer_address
 order by 1 desc
+limit 200
+```
+
+distinct:
+```sql
+select distinct buyer_address from doris.prod_silver.nft_trades
+limit 200
 ```
 
 inner join:
@@ -261,11 +276,7 @@ on a.amount_currency_contract_address = b.token_address
 and a.chain = b."chain"
 where a.collection_contract_address = '0xba6666b118f8303f990f3519df07e160227cce87'
 and a.buyer_address = '0x02639771b23931e8428fc30323d5a5ab8be22b06'
-```
-
-distinct:
-```sql
-select distinct buyer_address from doris.prod_silver.nft_trades
+limit 200
 ```
 
 ## TODO
