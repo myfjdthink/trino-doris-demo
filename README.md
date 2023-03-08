@@ -229,10 +229,10 @@ select count(*) from  "mysql-doris".dp.customer ;
 | inner join | 1.908         | 6.116                | 0.827 |
 
 结论：
-- 直接在 Doris 集群上查询是最快的。Doris 的原生存储格式在处理数据量较小的 table 时速度非常优秀。
-- 在简单的 filter 场景下，trino-doris 组合比 trino-iceberg 更快。
-- 在复杂计算场景下，trino-doris 组合的速度仍然比不过 trino-iceberg。经过 Explain ANALYZE 分析，原因是 Doris 的数据压缩率不够，aggregate 场景需要传输更多数据到 Trino，这消耗了时间。
-- 优化后的 Connector trino-doris-pushdown 可以让更多的计算下推。虽然它不能支持所有场景，但综合查询效果已经相当不错了。应尽量避免全量数据的计算。
+- 直接在Doris集群上查询是最快的。当处理数据量较小的表时，Doris的原生存储格式速度非常优秀。
+- 对于简单的筛选场景，trino-doris组合比trino-iceberg更快。
+- 对于复杂的计算场景，trino-doris组合的速度仍然比不过trino-iceberg。经过Explain ANALYZE分析，原因是Doris的数据压缩率不够高，导致聚合场景需要传输更多的数据到Trino，这会耗费时间。
+- 通过优化后的Connector（trino-doris-pushdown），可以让更多的计算下推。虽然它不能支持所有场景，但它已经具有相当不错的综合查询效果。因此，应尽量避免全量数据的计算。
 
 测试 SQL 明细：
 
